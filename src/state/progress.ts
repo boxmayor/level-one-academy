@@ -275,7 +275,7 @@ export interface Achievement {
   icon: string;
   title: string;
   desc: string;
-  test: (p: Progress, ctx: { totalLessons: number; totalTerms: number; units: { id: string; lessonIds: string[] }[] }) => boolean;
+  test: (p: Progress, ctx: { totalLessons: number; totalTerms: number; units: { id: string; lessonIds: string[] }[]; ladder?: { id: string; rating: number }[] }) => boolean;
 }
 
 export const ACHIEVEMENTS: Achievement[] = [
@@ -292,6 +292,20 @@ export const ACHIEVEMENTS: Achievement[] = [
   },
   { id: 'puzzles10', icon: '🧩', title: 'Puzzle Solver', desc: 'Solve 10 different puzzles.', test: (p) => Object.values(p.puzzles).filter((x) => x.solved).length >= 10 },
   { id: 'rating1200', icon: '📈', title: 'Sharp Eye', desc: 'Reach a puzzle rating of 1200.', test: (p) => p.puzzleRating >= 1200 },
+  {
+    id: 'master',
+    icon: '🎯',
+    title: 'Master Tactician',
+    desc: 'Solve a Master puzzle (rated 1600+).',
+    test: (p, c) => (c.ladder ?? []).some((x) => x.rating >= 1600 && p.puzzles[x.id]?.solved),
+  },
+  {
+    id: 'ladder',
+    icon: '🪜',
+    title: 'Top of the Ladder',
+    desc: 'Solve every puzzle on the ladder.',
+    test: (p, c) => !!c.ladder?.length && c.ladder.every((x) => p.puzzles[x.id]?.solved),
+  },
   { id: 'rush15', icon: '⚡', title: 'Speed Demon', desc: 'Score 15 or more in Puzzle Rush.', test: (p) => p.rushBest >= 15 },
   { id: 'review5', icon: '🧠', title: 'Memory Palace', desc: 'Finish 5 review sessions.', test: (p) => p.reviewsDone >= 5 },
   { id: 'xp1000', icon: '✨', title: 'Thousand Club', desc: 'Earn 1,000 XP.', test: (p) => p.xp >= 1000 },

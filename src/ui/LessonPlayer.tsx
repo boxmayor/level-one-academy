@@ -1,8 +1,10 @@
 import { useMemo, useRef, useState } from 'react';
 import { getLesson, unitOf } from '../content';
+import { teachCardRow, teachScope } from '../content/mentions';
 import { finishLesson } from '../state/actions';
 import { useProgress } from '../state/store';
 import { Scene } from './Board';
+import { CardScope } from './CardRef';
 import { CardFace } from './CardView';
 import { confetti, sfx } from './effects';
 import { navigate } from './router';
@@ -54,10 +56,12 @@ export function LessonPlayer({ id }: { id: string }) {
               {step + 1} / {lesson.teach.length}
             </span>
           </div>
-          <Prose text={t.body} />
-          {t.cards && (
+          <CardScope cards={teachScope(t)}>
+            <Prose text={t.body} />
+          </CardScope>
+          {teachCardRow(t).length > 0 && (
             <div className="cardrow">
-              {t.cards.map((c) => (
+              {teachCardRow(t).map((c) => (
                 <CardFace key={c} name={c} size="sm" />
               ))}
             </div>

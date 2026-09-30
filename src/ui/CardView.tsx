@@ -67,7 +67,7 @@ export function CardFace({
       <div className="c-text">
         {text.split('\n').map((l, i) => (
           <div key={i}>
-            <Inline text={l} />
+            <Inline text={l} links="off" />
           </div>
         ))}
         {def.flavor && size === 'md' && (

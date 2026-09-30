@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { hasCard } from '../engine/cardpool';
 import { runScript } from '../engine/puzzle';
-import { GLOSSARY, LESSONS, PUZZLES, TERM_LESSON, UNITS } from './index';
+import { GLOSSARY, LADDER_PUZZLES, LESSONS, PUZZLES, TERM_LESSON, UNITS } from './index';
 
 describe('content integrity', () => {
   it('has unique lesson ids', () => {
@@ -29,7 +29,20 @@ describe('content integrity', () => {
         }
       }
     }
+    for (const p of LADDER_PUZZLES) {
+      for (const side of [p.ex.puzzle.you, p.ex.puzzle.opp]) {
+        for (const e of side.battlefield ?? []) check(typeof e === 'string' ? e : e.card, p.id);
+        for (const c of [...(side.hand ?? []), ...(side.library ?? []), ...(side.graveyard ?? [])]) check(c, p.id);
+      }
+    }
     expect(missing).toEqual([]);
+  });
+
+  it('has ladder puzzles with unique ids, real lessons, and rising ratings', () => {
+    const ids = LADDER_PUZZLES.map((p) => p.id);
+    expect(new Set(ids).size).toBe(ids.length);
+    for (const p of LADDER_PUZZLES) expect(p.lessonTitle, p.id).not.toBe('');
+    for (let i = 1; i < LADDER_PUZZLES.length; i++) expect(LADDER_PUZZLES[i].ex.rating).toBeGreaterThanOrEqual(LADDER_PUZZLES[i - 1].ex.rating);
   });
 
   it('has well-formed exercises', () => {

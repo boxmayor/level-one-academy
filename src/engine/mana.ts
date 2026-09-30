@@ -97,6 +97,14 @@ function colorDemand(s: GameState, side: Side, excludeHandUid?: string): Record<
     if (c.uid === excludeHandUid) continue;
     for (const sym of parseCost(getCard(c.name).cost).colored) d[sym] = (d[sym] ?? 0) + 1;
   }
+  // Activated abilities on your permanents (e.g. "{R}: +1/+0") want their colors kept open too.
+  for (const p of s.battlefield) {
+    if (p.controller !== side) continue;
+    for (const ab of getCard(p.name).abilities ?? []) {
+      if (ab.mana) continue;
+      for (const sym of parseCost(ab.cost).colored) d[sym] = (d[sym] ?? 0) + 1;
+    }
+  }
   return d;
 }
 

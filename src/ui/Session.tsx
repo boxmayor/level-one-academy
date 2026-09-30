@@ -1,7 +1,9 @@
-import { useCallback, useEffect, useState, type ReactNode } from 'react';
+import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react';
+import { exerciseScope } from '../content/mentions';
 import type { Exercise } from '../content/types';
 import { loseHeart } from '../state/actions';
 import { useProgress } from '../state/store';
+import { CardScope } from './CardRef';
 import { sfx } from './effects';
 import { ExerciseView, type ResultInfo } from './Exercises';
 import { navigate } from './router';
@@ -98,6 +100,7 @@ export function Session({
     return () => window.removeEventListener('keydown', onKey);
   }, [last, next, outOfHearts]);
 
+  const scope = useMemo(() => exerciseScope(item.ex), [item.ex]);
   const pct = Math.round(((pos + (last ? 1 : 0)) / queue.length) * 100);
   const isRetry = pos >= items.length;
 
@@ -120,30 +123,32 @@ export function Session({
       {streak >= 3 && !last && <div className="pill gold" style={{ justifySelf: 'start', width: 'fit-content' }}>🔥 {streak} in a row</div>}
       {isRetry && !last && <div className="pill dim" style={{ width: 'fit-content' }}>↺ Second chance: you missed this one earlier</div>}
       {item.source && <div className="eyebrow">{item.source}</div>}
-      <ExerciseView key={`${item.id}-${attempt}`} ex={item.ex} locked={!!last} onResult={handleResult} />
+      <CardScope cards={scope}>
+        <ExerciseView key={`${item.id}-${attempt}`} ex={item.ex} locked={!!last} onResult={handleResult} />
 
-      {last && (
-        <div className={`feedback ${last.correct ? 'good' : 'bad'}`} role="status">
-          <h3>{last.correct ? PRAISE[(pos + item.id.length) % PRAISE.length] : 'Not quite.'}</h3>
-          {last.assisted && last.correct && <div className="small">Solved with a hint — it will come back for review soon.</div>}
-          {!last.correct && last.answerText && (
-            <div>
-              <b>Correct answer:</b> <Inline text={last.answerText} />
+        {last && (
+          <div className={`feedback ${last.correct ? 'good' : 'bad'}`} role="status">
+            <h3>{last.correct ? PRAISE[(pos + item.id.length) % PRAISE.length] : 'Not quite.'}</h3>
+            {last.assisted && last.correct && <div className="small">Solved with a hint — it will come back for review soon.</div>}
+            {!last.correct && last.answerText && (
+              <div>
+                <b>Correct answer:</b> <Inline text={last.answerText} />
+              </div>
+            )}
+            {last.note && (
+              <div className="small">
+                <Inline text={last.note} />
+              </div>
+            )}
+            <Prose text={item.ex.explain} />
+            <div className="row">
+              <button className={`btn ${last.correct ? 'good' : 'bad'}`} onClick={next} autoFocus>
+                Continue
+              </button>
             </div>
-          )}
-          {last.note && (
-            <div className="small">
-              <Inline text={last.note} />
-            </div>
-          )}
-          <Prose text={item.ex.explain} />
-          <div className="row">
-            <button className={`btn ${last.correct ? 'good' : 'bad'}`} onClick={next} autoFocus>
-              Continue
-            </button>
           </div>
-        </div>
-      )}
+        )}
+      </CardScope>
 
       {outOfHearts && (
         <div className="overlay">

@@ -10,6 +10,7 @@ import type {
   PickExercise,
   SortExercise,
 } from '../content/types';
+import { unshownQuestionCards } from '../content/mentions';
 import { Board, Scene } from './Board';
 import { CardFace } from './CardView';
 import { Inline, Prose } from './Text';
@@ -46,6 +47,19 @@ function CheckBar({ disabled, onCheck, label = 'Check' }: { disabled: boolean; o
   );
 }
 
+/** Cards the question names but doesn't show anywhere else, so you can read them before answering. */
+export function NamedCards({ ex }: { ex: Exercise }) {
+  const named = useMemo(() => unshownQuestionCards(ex), [ex]);
+  if (!named.length) return null;
+  return (
+    <div className="cardrow named" aria-label="Cards in this question">
+      {named.map((c) => (
+        <CardFace key={c} name={c} size="sm" />
+      ))}
+    </div>
+  );
+}
+
 function Illustration({ ex }: { ex: Exercise }) {
   return (
     <>
@@ -57,6 +71,7 @@ function Illustration({ ex }: { ex: Exercise }) {
           ))}
         </div>
       )}
+      <NamedCards ex={ex} />
     </>
   );
 }
@@ -111,7 +126,7 @@ function MC({ ex, locked, onResult }: Props<MCExercise>) {
             <button key={i} className={`option ${cls}`} onClick={() => toggle(i)} disabled={locked} aria-pressed={isSel}>
               <span className="key">{k + 1}</span>
               <span>
-                <Inline text={o} />
+                <Inline text={o} links="hover" />
               </span>
             </button>
           );
@@ -192,7 +207,7 @@ function Order({ ex, locked, onResult }: Props<OrderExercise>) {
           return (
             <button key={p} className={`chip ${ok === true ? 'right' : ok === false ? 'wrong' : ''}`} disabled={locked} onClick={() => setPlaced(placed.filter((x) => x !== p))}>
               <span className="n">{k + 1}</span>
-              <Inline text={bank[p].t} />
+              <Inline text={bank[p].t} links="hover" />
             </button>
           );
         })}
@@ -200,7 +215,7 @@ function Order({ ex, locked, onResult }: Props<OrderExercise>) {
       <div className="chips">
         {bank.map((b, idx) => (
           <button key={idx} className={`chip ${placed.includes(idx) ? 'used' : ''}`} disabled={locked || placed.includes(idx)} onClick={() => setPlaced([...placed, idx])}>
-            <Inline text={b.t} />
+            <Inline text={b.t} links="hover" />
           </button>
         ))}
       </div>
@@ -235,18 +250,19 @@ function Match({ ex, locked, onResult }: Props<MatchExercise>) {
         <Inline text={ex.prompt} />
         <div className="small muted">Tap an item on the left, then its match on the right.</div>
       </div>
+      <NamedCards ex={ex} />
       <div className="match-grid">
         <div className="match-col">
           {left.map((l) => (
             <button key={l.i} className={`chip ${done.includes(l.i) ? 'matched' : selL === l.i ? 'sel' : ''}`} disabled={done.includes(l.i) || locked} onClick={() => setSelL(l.i)}>
-              <Inline text={l.t} />
+              <Inline text={l.t} links="hover" />
             </button>
           ))}
         </div>
         <div className="match-col">
           {right.map((r) => (
             <button key={r.i} className={`chip ${done.includes(r.i) ? 'matched' : wrong === r.i ? 'wrong' : ''}`} disabled={done.includes(r.i) || locked} onClick={() => pickRight(r.i)}>
-              <Inline text={r.t} />
+              <Inline text={r.t} links="hover" />
             </button>
           ))}
         </div>
@@ -280,10 +296,11 @@ function Sort({ ex, locked, onResult }: Props<SortExercise>) {
         <Inline text={ex.prompt} />
         <div className="small muted">Pick an item, then tap the group it belongs to. Tap a placed item to move it back.</div>
       </div>
+      <NamedCards ex={ex} />
       <div className="chips">
         {unplaced.map((it) => (
           <button key={it.i} className={`chip ${sel === it.i ? 'sel' : ''}`} onClick={() => setSel(it.i)} disabled={locked}>
-            <Inline text={it.text} />
+            <Inline text={it.text} links="hover" />
           </button>
         ))}
       </div>
@@ -306,7 +323,7 @@ function Sort({ ex, locked, onResult }: Props<SortExercise>) {
                     setSel(it.i);
                   }}
                 >
-                  <Inline text={it.text} />
+                  <Inline text={it.text} links="hover" />
                   {locked && it.bucket !== bi && <span className="small"> → {ex.buckets[it.bucket]}</span>}
                 </button>
               ))}
@@ -326,6 +343,7 @@ function HandQ({ ex, locked, onResult }: Props<HandExercise>) {
       <div className="context">
         <Inline text={ex.context} />
       </div>
+      <NamedCards ex={ex} />
       <div className="hand-row">
         {ex.hand.map((c, i) => (
           <CardFace key={i} name={c} size="sm" />
@@ -360,6 +378,7 @@ function Pick({ ex, locked, onResult }: Props<PickExercise>) {
           <Inline text={ex.context} />
         </div>
       )}
+      <NamedCards ex={ex} />
       <div className="cardrow">
         {ex.pack.map((c, i) => {
           let style: React.CSSProperties = {};
@@ -442,6 +461,7 @@ function BoardQ({ ex, locked, onResult }: Props<BoardExercise>) {
       <div className="prompt">
         <Inline text={ex.prompt} />
       </div>
+      <NamedCards ex={ex} />
       <Board spec={ex.puzzle} goalText={ex.goalText} onFinish={handleFinish} footer={footer} resetKey={resetKey} replay={replay} onReplayDone={() => setReplay(null)} />
     </>
   );

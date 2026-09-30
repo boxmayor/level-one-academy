@@ -1,12 +1,15 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { PUZZLE_THEMES, PUZZLES, type PuzzleEntry } from '../content';
+import { PUZZLE_THEMES, PUZZLES, TIERS, tierOf, type PuzzleEntry } from '../content';
 import { randomDrill, type Drill } from '../content/drills';
+import { exerciseScope } from '../content/mentions';
 import { finishDaily, finishRush, recordPuzzle } from '../state/actions';
 import { dayKey } from '../state/progress';
-import { useProgress } from '../state/store';
+import { getProgress, useProgress } from '../state/store';
 import { Board } from './Board';
+import { CardScope } from './CardRef';
 import { CardChip } from './CardView';
 import { confetti, sfx } from './effects';
+import { NamedCards } from './Exercises';
 import { Link, navigate } from './router';
 import { Inline, Prose } from './Text';
 
@@ -55,6 +58,7 @@ export function PuzzleHub() {
           </button>
         </div>
       </div>
+      <Ladder />
       <div className="panel">
         <h3>All puzzles by theme</h3>
         <div className="theme-chips">
@@ -70,6 +74,80 @@ export function PuzzleHub() {
 }
 
 // ---------------------------------------------------------------------------
+// The ladder: every puzzle by difficulty tier
+
+/** All puzzles from easiest to hardest. */
+const BY_RATING = [...PUZZLES].sort((a, b) => a.ex.rating - b.ex.rating);
+
+export function puzzleTitle(e: PuzzleEntry): string {
+  if (e.source === 'ladder') {
+    const slug = e.id.replace(/^ladder:/, '');
+    return slug.replace(/-/g, ' ').replace(/^./, (c) => c.toUpperCase());
+  }
+  const n = PUZZLES.filter((x) => x.lessonId === e.lessonId).indexOf(e) + 1;
+  const count = PUZZLES.filter((x) => x.lessonId === e.lessonId).length;
+  return count > 1 ? `${e.lessonTitle} ${n}` : e.lessonTitle;
+}
+
+function Ladder() {
+  const p = useProgress();
+  const next = BY_RATING.find((e) => !p.puzzles[e.id]?.solved);
+  return (
+    <div className="panel">
+      <div style={{ display: 'flex', justifyContent: 'space-between', gap: '1rem', flexWrap: 'wrap', alignItems: 'baseline' }}>
+        <h3>The puzzle ladder</h3>
+        {next && (
+          <button className="btn small" onClick={() => navigate(`/puzzles/p/${encodeURIComponent(next.id)}`)}>
+            Next unsolved: {puzzleTitle(next)} ({next.ex.rating}) →
+          </button>
+        )}
+      </div>
+      <p className="small muted" style={{ marginTop: 0 }}>
+        Every puzzle from easiest to hardest. Lesson puzzles fill the lower tiers; the upper tiers are trainer-only puzzles that combine several ideas. Solved puzzles can be replayed any time.
+      </p>
+      <div className="ladder">
+        {TIERS.map((t) => {
+          const list = BY_RATING.filter((e) => tierOf(e.ex.rating).name === t.name);
+          if (!list.length) return null;
+          const done = list.filter((e) => p.puzzles[e.id]?.solved).length;
+          return (
+            <div key={t.name} className="tier" style={{ ['--tier' as string]: t.color } as React.CSSProperties}>
+              <div className="tier-head">
+                <b>{t.name}</b>
+                <span className="small muted num">
+                  {t.min}+ · {done}/{list.length} solved
+                </span>
+              </div>
+              <div className="tier-bar" aria-hidden="true">
+                <span style={{ width: `${(done / list.length) * 100}%` }} />
+              </div>
+              <div className="tier-list">
+                {list.map((e) => {
+                  const solved = p.puzzles[e.id]?.solved;
+                  const tried = p.puzzles[e.id] && !solved;
+                  return (
+                    <Link
+                      key={e.id}
+                      to={`/puzzles/p/${encodeURIComponent(e.id)}`}
+                      className={`tier-item ${solved ? 'solved' : ''} ${next?.id === e.id ? 'next' : ''}`}
+                      title={e.ex.goalText}
+                    >
+                      <span aria-hidden="true">{solved ? '✔' : tried ? '✘' : next?.id === e.id ? '▶' : '○'}</span>
+                      <span className="tier-name">{puzzleTitle(e)}</span>
+                      <span className="small muted num">{e.ex.rating}</span>
+                    </Link>
+                  );
+                })}
+              </div>
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
 // Rated trainer
 
 function choosePuzzle(rating: number, pool: PuzzleEntry[], solved: Record<string, { solved: boolean }>, avoid?: string): PuzzleEntry {
@@ -79,10 +157,13 @@ function choosePuzzle(rating: number, pool: PuzzleEntry[], solved: Record<string
   return top[Math.floor(Math.random() * top.length)] ?? pool[0];
 }
 
-export function PuzzleTrainer({ theme }: { theme?: string }) {
+export function PuzzleTrainer({ theme, fixedId }: { theme?: string; fixedId?: string }) {
   const p = useProgress();
   const pool = useMemo(() => (theme ? PUZZLES.filter((x) => x.ex.themes.includes(theme)) : PUZZLES), [theme]);
-  const [cur, setCur] = useState<PuzzleEntry>(() => choosePuzzle(p.puzzleRating, pool, p.puzzles));
+  const [cur, setCur] = useState<PuzzleEntry>(() => PUZZLES.find((x) => x.id === fixedId) ?? choosePuzzle(p.puzzleRating, pool, p.puzzles));
+  const ladderMode = !!fixedId;
+  // Whether this puzzle was solved before the current attempt (not updated by solving it now).
+  const solvedBefore = useMemo(() => !!getProgress().puzzles[cur.id]?.solved, [cur]);
   const [result, setResult] = useState<{ solved: boolean; delta: number } | null>(null);
   const [resetKey, setResetKey] = useState(0);
   const [replay, setReplay] = useState<PuzzleEntry['ex']['solution'] | null>(null);
@@ -103,6 +184,14 @@ export function PuzzleTrainer({ theme }: { theme?: string }) {
   );
 
   function next() {
+    if (ladderMode) {
+      // Climb: the next unsolved puzzle above this one, else the next one up.
+      const i = BY_RATING.indexOf(cur);
+      const up = BY_RATING.slice(i + 1);
+      const target = up.find((e) => !p.puzzles[e.id]?.solved) ?? up[0] ?? BY_RATING[0];
+      navigate(`/puzzles/p/${encodeURIComponent(target.id)}`);
+      return;
+    }
     setCur(choosePuzzle(p.puzzleRating, pool, p.puzzles, cur.id));
     setResult(null);
     setReplay(null);
@@ -111,96 +200,101 @@ export function PuzzleTrainer({ theme }: { theme?: string }) {
   }
 
   return (
-    <div className="page">
-      <div className="page-head" style={{ display: 'flex', justifyContent: 'space-between', gap: '1rem', flexWrap: 'wrap', alignItems: 'flex-end' }}>
-        <div>
-          <div className="eyebrow">
-            <Link to="/puzzles">Puzzles</Link> / {theme ? `Theme: ${theme}` : 'Rated'}
-          </div>
-          <h1>
-            Puzzle <span className="muted num">#{PUZZLES.indexOf(cur) + 1}</span>
-          </h1>
-        </div>
-        <div style={{ textAlign: 'right' }}>
-          <div className="eyebrow">Your rating</div>
-          <div className="rating num" style={{ fontSize: '1.6rem' }}>
-            {p.puzzleRating}
-            {result && (
-              <span className="small" style={{ color: result.delta >= 0 ? 'var(--good)' : 'var(--bad)', marginLeft: '0.4rem' }}>
-                {result.delta >= 0 ? `+${result.delta}` : result.delta}
-              </span>
-            )}
-          </div>
-          {streak > 1 && <div className="pill gold">🔥 {streak} solved in a row</div>}
-        </div>
-      </div>
-      <div className="small muted" style={{ display: 'flex', gap: '0.6rem', flexWrap: 'wrap', alignItems: 'center' }}>
-        <span className="pill dim">Rating {cur.ex.rating}</span>
-        {cur.ex.themes.map((t) => (
-          <span key={t} className="pill dim">
-            {t}
-          </span>
-        ))}
-        <span>
-          From the lesson <Link to={`/lesson/${cur.lessonId}`}>{cur.lessonTitle}</Link>
-        </span>
-      </div>
-      <div className="prompt">
-        <Inline text={cur.ex.prompt} />
-      </div>
-      <Board
-        key={cur.id}
-        spec={cur.ex.puzzle}
-        goalText={cur.ex.goalText}
-        onFinish={onFinish}
-        resetKey={resetKey}
-        replay={replay}
-        onReplayDone={() => setReplay(null)}
-        footer={
-          <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap', alignItems: 'center' }}>
-            {!result && !hint && (
-              <button className="btn ghost small" onClick={() => setHint(true)}>
-                💡 Hint (no rating gain)
-              </button>
-            )}
-            {!result && (
-              <button className="btn ghost small" onClick={() => setResetKey((k) => k + 1)}>
-                ↺ Reset turn
-              </button>
-            )}
-            {result && (
-              <>
-                <button className="btn good small" onClick={next}>
-                  Next puzzle →
-                </button>
-                <button className="btn ghost small" onClick={() => setResetKey((k) => k + 1)}>
-                  ↺ Try again
-                </button>
-                <button className="btn ghost small" onClick={() => setReplay([...cur.ex.solution])}>
-                  ▶ Watch solution
-                </button>
-              </>
-            )}
-            {hint && (
-              <span className="context small" style={{ flex: '1 1 100%' }}>
-                💡 <Inline text={cur.ex.hint} />
-              </span>
-            )}
-          </div>
-        }
-      />
-      {result && (
-        <div className={`feedback ${result.solved ? 'good' : 'bad'}`} style={{ position: 'static', borderRadius: 16 }}>
-          <h3>{result.solved ? 'Solved!' : 'Not this time.'}</h3>
-          {!result.solved && (
-            <div>
-              <b>Solution:</b> <Inline text={cur.ex.solutionText} />
+    <CardScope cards={exerciseScope(cur.ex)}>
+      <div className="page">
+        <div className="page-head" style={{ display: 'flex', justifyContent: 'space-between', gap: '1rem', flexWrap: 'wrap', alignItems: 'flex-end' }}>
+          <div>
+            <div className="eyebrow">
+              <Link to="/puzzles">Puzzles</Link> / {ladderMode ? 'Ladder' : theme ? `Theme: ${theme}` : 'Rated'}
             </div>
-          )}
-          <Prose text={cur.ex.explain} />
+            <h1>{puzzleTitle(cur)}</h1>
+          </div>
+          <div style={{ textAlign: 'right' }}>
+            <div className="eyebrow">Your rating</div>
+            <div className="rating num" style={{ fontSize: '1.6rem' }}>
+              {p.puzzleRating}
+              {result && (
+                <span className="small" style={{ color: result.delta >= 0 ? 'var(--good)' : 'var(--bad)', marginLeft: '0.4rem' }}>
+                  {result.delta >= 0 ? `+${result.delta}` : result.delta}
+                </span>
+              )}
+            </div>
+            {streak > 1 && <div className="pill gold">🔥 {streak} solved in a row</div>}
+          </div>
         </div>
-      )}
-    </div>
+        <div className="small muted" style={{ display: 'flex', gap: '0.6rem', flexWrap: 'wrap', alignItems: 'center' }}>
+          <span className="pill" style={{ background: tierOf(cur.ex.rating).color, color: '#fff' }}>
+            {tierOf(cur.ex.rating).name}
+          </span>
+          <span className="pill dim">Rating {cur.ex.rating}</span>
+          {solvedBefore && <span className="pill good">Solved before</span>}
+          {cur.ex.themes.map((t) => (
+            <span key={t} className="pill dim">
+              {t}
+            </span>
+          ))}
+          <span>
+            {cur.source === 'ladder' ? 'Builds on' : 'From'} the lesson <Link to={`/lesson/${cur.lessonId}`}>{cur.lessonTitle}</Link>
+          </span>
+        </div>
+        <div className="prompt">
+          <Inline text={cur.ex.prompt} />
+        </div>
+        <NamedCards ex={cur.ex} />
+        <Board
+          key={cur.id}
+          spec={cur.ex.puzzle}
+          goalText={cur.ex.goalText}
+          onFinish={onFinish}
+          resetKey={resetKey}
+          replay={replay}
+          onReplayDone={() => setReplay(null)}
+          footer={
+            <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap', alignItems: 'center' }}>
+              {!result && !hint && (
+                <button className="btn ghost small" onClick={() => setHint(true)}>
+                  💡 Hint (no rating gain)
+                </button>
+              )}
+              {!result && (
+                <button className="btn ghost small" onClick={() => setResetKey((k) => k + 1)}>
+                  ↺ Reset turn
+                </button>
+              )}
+              {result && (
+                <>
+                  <button className="btn good small" onClick={next}>
+                    {ladderMode ? 'Next on the ladder →' : 'Next puzzle →'}
+                  </button>
+                  <button className="btn ghost small" onClick={() => setResetKey((k) => k + 1)}>
+                    ↺ Try again
+                  </button>
+                  <button className="btn ghost small" onClick={() => setReplay([...cur.ex.solution])}>
+                    ▶ Watch solution
+                  </button>
+                </>
+              )}
+              {hint && (
+                <span className="context small" style={{ flex: '1 1 100%' }}>
+                  💡 <Inline text={cur.ex.hint} />
+                </span>
+              )}
+            </div>
+          }
+        />
+        {result && (
+          <div className={`feedback ${result.solved ? 'good' : 'bad'}`} style={{ position: 'static', borderRadius: 16 }}>
+            <h3>{result.solved ? 'Solved!' : 'Not this time.'}</h3>
+            {!result.solved && (
+              <div>
+                <b>Solution:</b> <Inline text={cur.ex.solutionText} />
+              </div>
+            )}
+            <Prose text={cur.ex.explain} />
+          </div>
+        )}
+      </div>
+    </CardScope>
   );
 }
 
@@ -235,52 +329,55 @@ export function DailyPuzzle() {
     [result, today],
   );
   return (
-    <div className="page">
-      <div className="page-head">
-        <div className="eyebrow">
-          <Link to="/puzzles">Puzzles</Link> / Daily
+    <CardScope cards={exerciseScope(entry.ex)}>
+      <div className="page">
+        <div className="page-head">
+          <div className="eyebrow">
+            <Link to="/puzzles">Puzzles</Link> / Daily
+          </div>
+          <h1>Daily puzzle · {new Date().toLocaleDateString(undefined, { month: 'long', day: 'numeric' })}</h1>
+          <p>{already && !result ? 'You already played today\'s puzzle. You can still replay it.' : 'Solve it on your first try for 10 XP.'}</p>
         </div>
-        <h1>Daily puzzle · {new Date().toLocaleDateString(undefined, { month: 'long', day: 'numeric' })}</h1>
-        <p>{already && !result ? 'You already played today\'s puzzle. You can still replay it.' : 'Solve it on your first try for 10 XP.'}</p>
-      </div>
-      <div className="prompt">
-        <Inline text={entry.ex.prompt} />
-      </div>
-      <Board
-        spec={entry.ex.puzzle}
-        goalText={entry.ex.goalText}
-        onFinish={onFinish}
-        resetKey={resetKey}
-        replay={replay}
-        onReplayDone={() => setReplay(null)}
-        footer={
-          result ? (
-            <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
-              <button className="btn ghost small" onClick={() => setResetKey((k) => k + 1)}>
-                ↺ Try again
-              </button>
-              <button className="btn ghost small" onClick={() => setReplay([...entry.ex.solution])}>
-                ▶ Watch solution
-              </button>
-              <button className="btn good small" onClick={() => navigate('/puzzles/train')}>
-                More puzzles →
-              </button>
-            </div>
-          ) : null
-        }
-      />
-      {result && (
-        <div className={`feedback ${result.solved ? 'good' : 'bad'}`} style={{ position: 'static', borderRadius: 16 }}>
-          <h3>{result.solved ? `Solved! ${result.xp ? `+${result.xp} XP` : ''}` : 'Not this time.'}</h3>
-          {!result.solved && (
-            <div>
-              <b>Solution:</b> <Inline text={entry.ex.solutionText} />
-            </div>
-          )}
-          <Prose text={entry.ex.explain} />
+        <div className="prompt">
+          <Inline text={entry.ex.prompt} />
         </div>
-      )}
-    </div>
+        <NamedCards ex={entry.ex} />
+        <Board
+          spec={entry.ex.puzzle}
+          goalText={entry.ex.goalText}
+          onFinish={onFinish}
+          resetKey={resetKey}
+          replay={replay}
+          onReplayDone={() => setReplay(null)}
+          footer={
+            result ? (
+              <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
+                <button className="btn ghost small" onClick={() => setResetKey((k) => k + 1)}>
+                  ↺ Try again
+                </button>
+                <button className="btn ghost small" onClick={() => setReplay([...entry.ex.solution])}>
+                  ▶ Watch solution
+                </button>
+                <button className="btn good small" onClick={() => navigate('/puzzles/train')}>
+                  More puzzles →
+                </button>
+              </div>
+            ) : null
+          }
+        />
+        {result && (
+          <div className={`feedback ${result.solved ? 'good' : 'bad'}`} style={{ position: 'static', borderRadius: 16 }}>
+            <h3>{result.solved ? `Solved! ${result.xp ? `+${result.xp} XP` : ''}` : 'Not this time.'}</h3>
+            {!result.solved && (
+              <div>
+                <b>Solution:</b> <Inline text={entry.ex.solutionText} />
+              </div>
+            )}
+            <Prose text={entry.ex.explain} />
+          </div>
+        )}
+      </div>
+    </CardScope>
   );
 }
 

@@ -27,9 +27,9 @@ npm run build      # production build in dist/
 | Course | 45 lessons, one per Level One article, in the course's 8 sections. Plus a 3-lesson board tutorial for new players. |
 | Lesson shape | 2–4 short teaching cards → 3–8 exercises → takeaways. Missed exercises come back at the end of the lesson. |
 | Exercise types | Multiple choice, true/false, number, put-in-order, matching, sorting, keep-or-mulligan hands, draft picks, interactive board puzzles. |
-| Board puzzles | 30 puzzles on a real rules engine. The opponent plays its best defense (it searches all blocks and your possible tricks). |
+| Board puzzles | 51 puzzles on a real rules engine: 30 inside lessons plus a 21-puzzle ladder (Advanced → Grandmaster, rated 1000–1950). The opponent plays its best defense: it searches every block against up to three of your tricks. |
 | Review | Leitner spaced repetition (1, 3, 7, 16, 35 days). Mixes questions from all finished lessons. Glossary terms join review as lessons teach them. |
-| Puzzle Trainer | Elo-style puzzle rating; puzzles picked near your rating; filter by theme. |
+| Puzzle Trainer | Elo-style puzzle rating; puzzles picked near your rating; filter by theme; a ladder view of every puzzle by difficulty tier. |
 | Puzzle Rush | 3 minutes, 3 strikes. Endless generated drills: combat math, lethal counting, race math, card counting, two-to-five lands. |
 | Gamification | XP, levels with titles, daily goal, streak, hearts (regenerate, or refill by reviewing), stars per lesson, achievements, daily puzzle. |
 
@@ -55,7 +55,7 @@ so it works under the `/level-one-academy/` subpath without extra configuration.
 ## Code map
 
 ```
-src/engine/      simplified Magic rules engine
+src/engine/      simplified Magic rules engine (plus solver.ts, a brute-force puzzle solver)
   types.ts       game state, cards, effects
   cardpool.ts    the card database (original cards)
   mana.ts        costs and automatic mana payment
@@ -65,6 +65,7 @@ src/engine/      simplified Magic rules engine
   puzzle.ts      puzzle setup, goals, scripted solutions
 src/content/     course content
   unit0.ts…unit8.ts   lessons (one file per course section)
+  ladder.ts      the puzzle ladder (trainer-only, Advanced to Grandmaster)
   glossary.ts    the course glossary, in our own words
   drills.ts      generated Puzzle Rush questions
 src/state/       progress, spaced repetition, XP, streaks, achievements
@@ -107,3 +108,28 @@ board({
 
 `npm test` plays every `solution` against the AI and checks it succeeds, and plays every `refute`
 line and checks it fails.
+
+### Card names in text
+
+Write card names as plain text. `src/content/mentions.ts` finds them, and the app highlights each one
+and shows the full card on hover, focus or tap. Short names ("the Cub") work when the full card is
+part of the same question. If a question names a card that isn't on its board or in its card row,
+the card also appears under the prompt. To list every short-name match and check for mistakes:
+
+```bash
+DESIGN=1 npx vitest run src/dev/mentions.test.ts --silent=false
+```
+
+### Designing harder puzzles
+
+`src/engine/solver.ts` tries every line of play against the AI and counts winning and losing lines.
+Ladder puzzles live in `src/content/ladder.ts`. To survey them (slow, not part of `npm test`):
+
+```bash
+DESIGN=1 npx vitest run src/dev --silent=false
+```
+
+A good hard puzzle has few winning lines (often just different orderings of one idea) and many
+failing ones. The ladder stops at about 1950: beyond that, puzzles would need more than one of your
+turns, hidden information, or more tricks than the AI can search exhaustively — so the "best
+defense" guarantee would no longer hold.

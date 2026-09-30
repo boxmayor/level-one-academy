@@ -176,6 +176,33 @@ const creatures: CardDef[] = [
   },
 ];
 
+// Added for the advanced puzzle ladder.
+const ladderCreatures: CardDef[] = [
+  {
+    name: 'Watch Captain',
+    cost: '{2}{W}',
+    types: ['creature'],
+    subtypes: ['Human', 'Soldier'],
+    power: 1,
+    toughness: 3,
+    art: '🎖️',
+    text: '{T}: Tap target creature.',
+    abilities: [{ label: '{T}: Tap target creature.', cost: '', tap: true, effect: { kind: 'tap', target: 'creature' } }],
+  },
+  {
+    name: 'Cinder Adept',
+    cost: '{2}{R}',
+    types: ['creature'],
+    subtypes: ['Human', 'Shaman'],
+    power: 1,
+    toughness: 2,
+    art: '🔥',
+    text: '{T}: Cinder Adept deals 1 damage to any target.',
+    abilities: [{ label: '{T}: Deal 1 damage to any target.', cost: '', tap: true, effect: { kind: 'damage', amount: 1, target: 'any' } }],
+  },
+  { name: 'Blazing Charger', cost: '{2}{R}', types: ['creature'], subtypes: ['Elemental', 'Horse'], power: 3, toughness: 1, keywords: ['haste'], art: '🐎', text: 'Haste' },
+];
+
 const tokens: CardDef[] = [
   { name: 'Goblin Token', types: ['creature'], subtypes: ['Goblin'], power: 1, toughness: 1, art: '👺', token: true, colorHint: ['R'], text: '' },
   { name: 'Soldier Token', types: ['creature'], subtypes: ['Soldier'], power: 1, toughness: 1, art: '🪖', token: true, colorHint: ['W'], text: '' },
@@ -224,6 +251,12 @@ const spells: CardDef[] = [
   { name: 'Titan\'s Surge', cost: '{G}', types: ['instant'], art: '💪', effect: { kind: 'pump', power: 3, toughness: 3, target: 'creature' }, text: 'Target creature gets +3/+3 until end of turn.' },
   { name: 'Titanic Bloom', cost: '{1}{G}', types: ['instant'], art: '🌱', effect: { kind: 'pump', power: 4, toughness: 4, target: 'creature' }, text: 'Target creature gets +4/+4 until end of turn.' },
   { name: 'Bear\'s Rage', cost: '{2}{G}', types: ['instant'], art: '🐾', effect: { kind: 'pump', power: 3, toughness: 3, keywords: ['trample'], target: 'creature' }, text: 'Target creature gets +3/+3 and gains trample until end of turn.' },
+  // Ladder tricks
+  { name: 'Duelist\'s Edge', cost: '{W}', types: ['instant'], art: '🤺', effect: { kind: 'pump', power: 1, toughness: 1, keywords: ['firstStrike'], target: 'creature' }, text: 'Target creature gets +1/+1 and gains first strike until end of turn.' },
+  { name: 'Venom Coat', cost: '{B}', types: ['instant'], art: '🧪', effect: { kind: 'pump', power: 1, toughness: 0, keywords: ['deathtouch'], target: 'creature' }, text: 'Target creature gets +1/+0 and gains deathtouch until end of turn.' },
+  { name: 'Stoneskin Rite', cost: '{1}{W}', types: ['instant'], art: '🪨', effect: { kind: 'pump', power: 0, toughness: 0, keywords: ['indestructible'], target: 'creature' }, text: 'Target creature gains indestructible until end of turn. (Damage and "destroy" effects don\'t destroy it.)' },
+  { name: 'Second Wind', cost: '{1}{W}', types: ['instant'], art: '🌬️', effect: { kind: 'pump', power: 1, toughness: 1, target: 'creature', untap: true }, text: 'Untap target creature. It gets +1/+1 until end of turn.' },
+  { name: 'Shield Wall', cost: '{1}{W}', types: ['instant'], art: '🛡️', effect: { kind: 'pumpTeam', power: 0, toughness: 2 }, text: 'Creatures you control get +0/+2 until end of turn.' },
   // Multicolor
   {
     name: 'Tri-Clan Charm',
@@ -244,7 +277,7 @@ const spells: CardDef[] = [
   { name: 'Maddening Whispers', cost: '{1}{U}{B}', types: ['sorcery'], art: '🌀', effect: { kind: 'wheel' }, text: 'Each player discards their hand, then draws cards equal to the greatest number of cards a player discarded this way.', rarity: 'rare' },
 ];
 
-export const CARD_LIST: CardDef[] = [...lands, ...creatures, ...tokens, ...spells];
+export const CARD_LIST: CardDef[] = [...lands, ...creatures, ...ladderCreatures, ...tokens, ...spells];
 
 const registry = new Map<string, CardDef>(CARD_LIST.map((c) => [c.name, c]));
 

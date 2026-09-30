@@ -1,4 +1,5 @@
 import { GLOSSARY, GLOSSARY_TERMS } from './glossary';
+import { LADDER } from './ladder';
 import type { BoardExercise, Exercise, Lesson, MCExercise, Unit } from './types';
 import { unit0 } from './unit0';
 import { unit1 } from './unit1';
@@ -39,11 +40,36 @@ export interface PuzzleEntry {
   lessonId: string;
   lessonTitle: string;
   ex: BoardExercise;
+  /** 'lesson' puzzles appear inside lessons; 'ladder' puzzles are trainer-only and harder. */
+  source: 'lesson' | 'ladder';
 }
 
-export const PUZZLES: PuzzleEntry[] = LESSONS.flatMap((l) =>
-  l.exercises.filter((e): e is BoardExercise => e.type === 'board').map((ex) => ({ id: ex.id!, lessonId: l.id, lessonTitle: l.title, ex })),
+const LESSON_PUZZLES: PuzzleEntry[] = LESSONS.flatMap((l) =>
+  l.exercises.filter((e): e is BoardExercise => e.type === 'board').map((ex) => ({ id: ex.id!, lessonId: l.id, lessonTitle: l.title, ex, source: 'lesson' as const })),
 );
+
+export const LADDER_PUZZLES: PuzzleEntry[] = [...LADDER]
+  .sort((a, b) => a.ex.rating - b.ex.rating)
+  .map((p) => {
+    p.ex.id = p.id;
+    return { id: p.id, lessonId: p.lessonId, lessonTitle: lessonById.get(p.lessonId)?.title ?? '', ex: p.ex, source: 'ladder' as const };
+  });
+
+export const PUZZLES: PuzzleEntry[] = [...LESSON_PUZZLES, ...LADDER_PUZZLES];
+
+/** Difficulty tiers by puzzle rating, like chess puzzle trainers. */
+export const TIERS = [
+  { name: 'Beginner', min: 0, color: 'var(--good)' },
+  { name: 'Intermediate', min: 700, color: 'var(--accent)' },
+  { name: 'Advanced', min: 1000, color: 'var(--gold)' },
+  { name: 'Expert', min: 1300, color: 'var(--flame)' },
+  { name: 'Master', min: 1600, color: 'var(--bad)' },
+  { name: 'Grandmaster', min: 1900, color: '#7a4ea3' },
+] as const;
+
+export function tierOf(rating: number) {
+  return [...TIERS].reverse().find((t) => rating >= t.min)!;
+}
 
 export const PUZZLE_THEMES = [...new Set(PUZZLES.flatMap((p) => p.ex.themes))].sort();
 

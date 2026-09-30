@@ -1,4 +1,4 @@
-import { COURSE_LESSONS, UNITS } from '../content';
+import { COURSE_LESSONS, LADDER_PUZZLES, UNITS } from '../content';
 import {
   ACHIEVEMENTS,
   addXP,
@@ -17,6 +17,7 @@ const ctx = () => ({
   totalLessons: COURSE_LESSONS.length,
   totalTerms: 0,
   units: UNITS.filter((u) => !u.optional).map((u) => ({ id: u.id, lessonIds: u.lessons.map((l) => l.id) })),
+  ladder: LADDER_PUZZLES.map((p) => ({ id: p.id, rating: p.ex.rating })),
 });
 
 // Achievement announcements (shown as toasts).

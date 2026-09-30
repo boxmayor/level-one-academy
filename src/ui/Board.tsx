@@ -541,7 +541,12 @@ export function Board({ spec, interactive = true, goalText, onFinish, footer, re
     <div className="board" aria-label="Game board">
       {goalText && interactive && (
         <div style={{ display: 'flex', justifyContent: 'space-between', gap: '0.5rem', flexWrap: 'wrap', alignItems: 'center' }}>
-          <span className="goalchip">🎯 {goalText}</span>
+          <span className="goalchip">
+            🎯{' '}
+            <span>
+              <Inline text={goalText} />
+            </span>
+          </span>
           <div className="phase" aria-label="Turn steps">
             {STEPS.map((st) => (
               <span key={st.key} className={s.step === st.key ? 'on' : ''}>
@@ -752,7 +757,7 @@ function DetailModal({
                 <div key={i} style={{ display: 'grid', gap: '0.2rem' }}>
                   <button className="btn small" disabled={!chk.ok} onClick={() => onBegin({ type: 'activate', uid: p.uid, index: i })}>
                     <span style={{ textTransform: 'none' }}>
-                      <Inline text={ab.label} />
+                      <Inline text={ab.label} links="off" />
                     </span>
                   </button>
                   {!chk.ok && <span className="small muted">{chk.reason}</span>}

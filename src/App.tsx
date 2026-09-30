@@ -105,6 +105,7 @@ export function App() {
     focus = true;
   } else if (parts[0] === 'review') page = <Review key={parts[1] ?? 'srs'} mode={parts[1] === 'glossary' ? 'glossary' : 'srs'} />;
   else if (parts[0] === 'puzzles' && parts[1] === 'train') page = <PuzzleTrainer key={parts[2] ?? 'all'} theme={parts[2] ? decodeURIComponent(parts[2]) : undefined} />;
+  else if (parts[0] === 'puzzles' && parts[1] === 'p' && parts[2]) page = <PuzzleTrainer key={parts[2]} fixedId={decodeURIComponent(parts[2])} />;
   else if (parts[0] === 'puzzles' && parts[1] === 'rush') page = <Rush />;
   else if (parts[0] === 'puzzles' && parts[1] === 'daily') page = <DailyPuzzle />;
   else if (parts[0] === 'puzzles') page = <PuzzleHub />;

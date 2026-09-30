@@ -120,6 +120,8 @@ export interface Response {
   effect: Effect;
   name: string;
   usesCard: boolean;
+  /** Abilities without {T} can be activated again in the same fight (e.g. firebreathing). */
+  repeatable: boolean;
 }
 
 export function listResponses(s: GameState, side: Side): Response[] {
@@ -139,7 +141,7 @@ export function listResponses(s: GameState, side: Side): Response[] {
     const cost = parseCost(def.cost);
     const x = cost.hasX ? maxX(s, side, def.cost) : 0;
     if (x < 0 || !findPayment(s, side, def.cost, x)) continue;
-    const base = { side, kind: 'cast' as const, uid: c.uid, cost: def.cost ?? '', x, name: c.name, usesCard: true };
+    const base = { side, kind: 'cast' as const, uid: c.uid, cost: def.cost ?? '', x, name: c.name, usesCard: true, repeatable: false };
     if (def.effect.kind === 'modal') {
       def.effect.modes.forEach((m, i) => pushTargets({ ...base, mode: i, effect: m.effect }, def.effect!, i));
     } else pushTargets({ ...base, effect: def.effect }, def.effect);
@@ -151,7 +153,7 @@ export function listResponses(s: GameState, side: Side): Response[] {
       if (ab.mana || ab.animate || !ab.effect || ab.sorcery) return;
       if (ab.tap && (p.tapped || (isCreature(p) && p.sick && !hasKw(p, 'haste')))) return;
       if (!findPayment(s, side, ab.cost, 0, ab.tap ? p.uid : undefined)) return;
-      const base = { side, kind: 'activate' as const, uid: p.uid, abilityIndex: i, cost: ab.cost, effect: ab.effect!, name: p.name, usesCard: false };
+      const base = { side, kind: 'activate' as const, uid: p.uid, abilityIndex: i, cost: ab.cost, effect: ab.effect!, name: p.name, usesCard: false, repeatable: !ab.tap };
       pushTargets(base, ab.effect!);
     });
   }
@@ -280,7 +282,8 @@ function applyLight(l: LState, r: Response, effect: Effect = r.effect) {
 function lightEval(l: LState, side: Side): number {
   const o = other(side);
   if (l.life[o] <= 0 && l.life[side] > 0) return 10000 + l.life[side];
-  if (l.life[side] <= 0) return -10000;
+  // A lost position still prefers taking less damage, so a beaten defender keeps blocking like a real player.
+  if (l.life[side] <= 0) return -10000 + l.life[side];
   let v = lifeScore(l.life[side]) - lifeScore(l.life[o]);
   for (const u of Object.values(l.units)) {
     if (u.gone) continue;
@@ -306,26 +309,64 @@ function lightCombat(l0: LState, attackers: string[], blocks: Record<string, str
   return l;
 }
 
-/** Response sets of size 0..maxN whose combined cost is payable. */
+/**
+ * Combinations of up to maxN responses whose combined cost is payable. A card can be used once;
+ * an ability without {T} may repeat. The size shrinks as the number of options grows, to bound the search.
+ */
 function responseSets(s: GameState, rs: Response[], maxN: number): Response[][] {
+  const limit = Math.min(maxN, rs.length <= 8 ? 3 : rs.length <= 20 ? 2 : 1);
   const sets: Response[][] = [[]];
-  if (maxN >= 1) for (const r of rs) sets.push([r]);
-  if (maxN >= 2 && rs.length <= 10) {
-    for (let i = 0; i < rs.length; i++) {
-      for (let j = i + 1; j < rs.length; j++) {
-        if (rs[i].usesCard && rs[j].usesCard && rs[i].uid === rs[j].uid) continue;
-        if (!findPayment(s, rs[i].side, rs[i].cost + rs[j].cost + (rs[i].x ? `{${rs[i].x}}` : '') + (rs[j].x ? `{${rs[j].x}}` : ''))) continue;
-        sets.push([rs[i], rs[j]]);
-      }
+  const costOf = (set: Response[]) => set.map((r) => r.cost + (r.x ? `{${r.x}}` : '')).join('');
+  const rec = (start: number, cur: Response[]) => {
+    if (cur.length >= limit) return;
+    for (let i = start; i < rs.length; i++) {
+      const r = rs[i];
+      if (r.usesCard && cur.some((c) => c.usesCard && c.uid === r.uid)) continue;
+      const next = [...cur, r];
+      if (next.length > 1 && !findPayment(s, r.side, costOf(next))) continue;
+      sets.push(next);
+      rec(r.repeatable ? i : i + 1, next);
     }
-  }
+  };
+  rec(0, []);
   return sets;
 }
 
-const COMBAT_RELEVANT = new Set(['damage', 'destroy', 'exile', 'bounce', 'pump', 'counters', 'pumpTeam', 'modal', 'seq']);
-
-function combatResponses(s: GameState, side: Side): Response[] {
-  return listResponses(s, side).filter((r) => COMBAT_RELEVANT.has(r.effect.kind));
+/**
+ * Instant-speed actions that can change this combat: pumps on your own fighters,
+ * removal or damage on the enemy's fighters, burn to the face, team pumps and drains.
+ * Pruning the rest keeps the search small enough to consider two-trick combinations.
+ */
+function combatResponses(s: GameState, side: Side, own: Set<string>, enemy: Set<string>): Response[] {
+  const enemySide = other(side);
+  const onOwn = (r: Response) => r.target?.type === 'perm' && own.has(r.target.uid);
+  const onEnemy = (r: Response) => r.target?.type === 'perm' && enemy.has(r.target.uid);
+  const relevant = (r: Response, e: Effect): boolean => {
+    switch (e.kind) {
+      case 'pump': {
+        if (e.target === 'self') return own.has(r.uid);
+        const helps = e.power > 0 || e.toughness > 0 || !!e.keywords?.length || !!e.untap;
+        return helps ? onOwn(r) : onEnemy(r);
+      }
+      case 'counters':
+        return e.target === 'self' ? own.has(r.uid) : onOwn(r);
+      case 'damage':
+        return onEnemy(r) || (r.target?.type === 'player' && r.target.side === enemySide);
+      case 'destroy':
+      case 'exile':
+        return onEnemy(r);
+      case 'bounce':
+        return onEnemy(r) || onOwn(r);
+      case 'pumpTeam':
+      case 'drain':
+        return true;
+      case 'seq':
+        return e.effects.some((x) => relevant(r, x));
+      default:
+        return false;
+    }
+  };
+  return listResponses(s, side).filter((r) => relevant(r, r.effect));
 }
 
 // ---------------------------------------------------------------------------
@@ -352,7 +393,11 @@ function enumerateBlocks(s: GameState, attackers: string[], defenders: Permanent
   return out;
 }
 
-/** Value (for the defender) of a block assignment after the attacker's best trick and the defender's best reply. */
+/**
+ * Value (for the defender) of a block assignment after the attacker's best trick and the defender's best reply.
+ * `losingLines` counts the attacker's trick sets that still kill the defender: when every block loses,
+ * the defender picks the block with the fewest winning answers, like a chess engine that resists.
+ */
 function blockValue(
   base: LState,
   attackers: string[],
@@ -360,8 +405,9 @@ function blockValue(
   defender: Side,
   attackerSets: Response[][],
   defenderSets: Response[][],
-): number {
+): { worst: number; losingLines: number } {
   let worst = Infinity;
+  let losingLines = 0;
   for (const aSet of attackerSets) {
     let best = -Infinity;
     for (const dSet of defenderSets) {
@@ -372,10 +418,14 @@ function blockValue(
       const v = lightEval(after, defender);
       if (v > best) best = v;
     }
+    if (best <= -10000) losingLines++;
     if (best < worst) worst = best;
-    if (worst <= -10000) break;
   }
-  return worst;
+  return { worst, losingLines };
+}
+
+function fighters(attackers: string[], defenders: Permanent[]) {
+  return { att: new Set(attackers), def: new Set(defenders.map((p) => p.uid)) };
 }
 
 export function chooseBlocks(s: GameState, policy: AIPolicy = {}): Record<string, string> {
@@ -398,14 +448,19 @@ export function chooseBlocks(s: GameState, policy: AIPolicy = {}): Record<string
   const defenders = creatures(s, defender).filter((p) => !p.tapped);
   const assigns = enumerateBlocks(s, c.attackers, defenders);
   const base = toLight(s);
-  const attackerSets = pol.blocks === 'minimax' ? responseSets(s, combatResponses(s, s.active), 2) : [[]];
-  const defenderSets = pol.tricks ? responseSets(s, combatResponses(s, defender), 1) : [[]];
-  let bestV = -Infinity;
+  const f = fighters(c.attackers, defenders);
+  const attackerSets = pol.blocks === 'minimax' ? responseSets(s, combatResponses(s, s.active, f.att, f.def), 3) : [[]];
+  const defenderSets = pol.tricks ? responseSets(s, combatResponses(s, defender, f.def, f.att), 1) : [[]];
   let best: Record<string, string> = {};
+  let bestKey: [number, number] = [-Infinity, -Infinity];
   for (const a of assigns) {
-    const v = blockValue(base, c.attackers, a, defender, attackerSets, defenderSets) - Object.keys(a).length * 0.01;
-    if (v > bestV + 1e-9) {
-      bestV = v;
+    const { worst, losingLines } = blockValue(base, c.attackers, a, defender, attackerSets, defenderSets);
+    // Prefer: higher value; then (when lost anyway) fewer winning answers for the attacker; then fewer blockers.
+    const key: [number, number] = [worst - Object.keys(a).length * 0.01, -losingLines];
+    const lost = worst <= -10000;
+    const better = lost && bestKey[0] <= -10000 ? key[1] > bestKey[1] || (key[1] === bestKey[1] && key[0] > bestKey[0] + 1e-9) : key[0] > bestKey[0] + 1e-9;
+    if (better) {
+      bestKey = key;
       best = a;
     }
   }
@@ -436,7 +491,8 @@ export function chooseAttackers(s: GameState, policy: AIPolicy = {}): string[] {
   const defender = other(side);
   const blockers = creatures(s, defender).filter((p) => !p.tapped);
   const base = toLight(s);
-  const mySets = pol.tricks ? responseSets(s, combatResponses(s, side), 1) : [[]];
+  const f = fighters(candidates.map((p) => p.uid), blockers);
+  const mySets = pol.tricks ? responseSets(s, combatResponses(s, side, f.att, f.def), 1) : [[]];
   let bestV = -Infinity;
   let best: string[] = [];
   const n = candidates.length;
@@ -484,6 +540,25 @@ function applyResponse(s: GameState, r: Response): GameState {
 }
 
 /** Resolve the stack with nobody responding, then finish combat if blockers are declared. */
+/** The defender's best blocks with no tricks (a fast estimate used when looking ahead). */
+function quickBlocks(s: GameState): Record<string, string> {
+  const c = s.combat;
+  if (!c) return {};
+  const defender = other(s.active);
+  const base = toLight(s);
+  let best: Record<string, string> = {};
+  let bestV = -Infinity;
+  for (const a of enumerateBlocks(s, c.attackers, creatures(s, defender).filter((p) => !p.tapped))) {
+    const v = lightEval(lightCombat(base, c.attackers, a, defender), defender) - Object.keys(a).length * 0.01;
+    if (v > bestV) {
+      bestV = v;
+      best = a;
+    }
+  }
+  return best;
+}
+
+/** Resolve the stack with nobody responding, then play out this combat (blocks included) to judge a decision. */
 function settle(s0: GameState): GameState {
   let s = s0;
   let guard = 0;
@@ -491,6 +566,10 @@ function settle(s0: GameState): GameState {
     s = clone(s);
     s.passes = 1;
     s = pass(s, s.priority);
+  }
+  if (!s.winner && s.step === 'blockers' && !s.stack.length && s.combat) {
+    // Look past the blocks too, so a pump cast before blocking is valued for the fight it changes.
+    s = declareBlockers(s, quickBlocks(s));
   }
   if (!s.winner && s.step === 'combat') {
     s = clone(s);
@@ -602,10 +681,11 @@ function blockOutcome(s: GameState, pol: AIPolicy): number {
   if (!c) return evaluate(s, 'opp');
   const defenders = creatures(s, 'opp').filter((p) => !p.tapped);
   const base = toLight(s);
-  const attackerSets = pol.blocks === 'minimax' ? responseSets(s, combatResponses(s, s.active), 1) : [[]];
+  const f = fighters(c.attackers, defenders);
+  const attackerSets = pol.blocks === 'minimax' ? responseSets(s, combatResponses(s, s.active, f.att, f.def), 1) : [[]];
   let best = -Infinity;
   for (const a of enumerateBlocks(s, c.attackers, defenders)) {
-    const v = blockValue(base, c.attackers, a, 'opp', attackerSets, [[]]);
+    const v = blockValue(base, c.attackers, a, 'opp', attackerSets, [[]]).worst;
     if (v > best) best = v;
   }
   return best;
